@@ -686,6 +686,8 @@ ffi_call (ffi_cif *cif, void (*fn)(void), void *rvalue, void **avalue)
   ffi_call_int (cif, fn, rvalue, avalue, NULL);
 }
 
+#ifdef FFI_GO_CLOSURES
+
 #ifndef __ILP32__
 extern void
 ffi_call_go_efi64(ffi_cif *cif, void (*fn)(void), void *rvalue,
@@ -706,6 +708,7 @@ ffi_call_go (ffi_cif *cif, void (*fn)(void), void *rvalue,
   ffi_call_int (cif, fn, rvalue, avalue, closure);
 }
 
+#endif /* FFI_GO_CLOSURES */
 
 extern void ffi_closure_unix64(void) FFI_HIDDEN;
 extern void ffi_closure_unix64_sse(void) FFI_HIDDEN;
@@ -852,6 +855,8 @@ ffi_closure_unix64_inner(ffi_cif *cif,
   return flags;
 }
 
+#ifdef FFI_GO_CLOSURES
+
 extern void ffi_go_closure_unix64(void) FFI_HIDDEN;
 extern void ffi_go_closure_unix64_sse(void) FFI_HIDDEN;
 
@@ -880,5 +885,7 @@ ffi_prep_go_closure (ffi_go_closure* closure, ffi_cif* cif,
 
   return FFI_OK;
 }
+
+#endif /* FFI_GO_CLOSURES */
 
 #endif /* __x86_64__ */

@@ -395,12 +395,14 @@ ffi_call (ffi_cif *cif, void (*fn)(void), void *rvalue, void **avalue)
   ffi_call_int (cif, fn, rvalue, avalue, NULL);
 }
 
+#ifdef FFI_GO_CLOSURES
 void
 ffi_call_go (ffi_cif *cif, void (*fn)(void), void *rvalue,
 	     void **avalue, void *closure)
 {
   ffi_call_int (cif, fn, rvalue, avalue, closure);
 }
+#endif
 
 /** private members **/
 
@@ -570,6 +572,8 @@ ffi_prep_closure_loc (ffi_closure* closure,
   return FFI_OK;
 }
 
+#ifdef FFI_GO_CLOSURES
+
 void FFI_HIDDEN ffi_go_closure_EAX(void);
 void FFI_HIDDEN ffi_go_closure_ECX(void);
 void FFI_HIDDEN ffi_go_closure_STDCALL(void);
@@ -605,6 +609,8 @@ ffi_prep_go_closure (ffi_go_closure* closure, ffi_cif* cif,
 
   return FFI_OK;
 }
+
+#endif /* FFI_GO_CLOSURES */
 
 /* ------- Native raw API support -------------------------------- */
 
