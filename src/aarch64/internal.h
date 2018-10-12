@@ -65,3 +65,24 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
 #define N_X_ARG_REG		8
 #define N_V_ARG_REG		8
 #define CALL_CONTEXT_SIZE	(N_V_ARG_REG * 16 + N_X_ARG_REG * 8)
+
+/* Helpers for writing assembly compatible with arm ptr auth */
+#ifdef LIBFFI_ASM
+
+#if __has_feature(ptrauth_calls)
+#define SIGN_LR pacibsp
+#define SIGN_LR_WITH_REG(x) pacib lr, x
+#define AUTH_LR_AND_RET retab
+#define AUTH_LR_WITH_REG(x) autib lr, x
+#define BRANCH_AND_LINK_TO_REG blraaz
+#define BRANCH_TO_REG braaz
+#else
+#define SIGN_LR
+#define SIGN_LR_WITH_REG(x)
+#define AUTH_LR_AND_RET ret
+#define AUTH_LR_WITH_REG(x)
+#define BRANCH_AND_LINK_TO_REG blr
+#define BRANCH_TO_REG br
+#endif
+
+#endif

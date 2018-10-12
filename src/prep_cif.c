@@ -234,7 +234,7 @@ ffi_status ffi_prep_cif_var(ffi_cif *cif,
   return ffi_prep_cif_core(cif, abi, 1, nfixedargs, ntotalargs, rtype, atypes);
 }
 
-#if FFI_CLOSURES
+#if FFI_CLOSURES && FFI_LEGACY_CLOSURE_API
 
 ffi_status
 ffi_prep_closure (ffi_closure* closure,
