@@ -531,6 +531,8 @@ ffi_prep_incoming_args_VFP (ffi_cif *cif, void *rvalue, char *stack,
   return rvalue;
 }
 
+#if FFI_CLOSURES
+
 struct closure_frame
 {
   char vfp_space[8*8] __attribute__((aligned(8)));
@@ -650,6 +652,8 @@ ffi_prep_go_closure (ffi_go_closure *closure, ffi_cif *cif,
   return FFI_OK;
 }
 #endif
+
+#endif /* FFI_CLOSURES */
 
 /* Below are routines for VFP hard-float support. */
 

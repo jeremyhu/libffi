@@ -146,12 +146,22 @@ ffi_closure_free (void *ptr)
 
 #ifdef __MACH__
 
+#include <assert.h>
+#include <dispatch/dispatch.h>
+#include <dlfcn.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-extern void *ffi_closure_trampoline_table_page;
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#define sign_ptr(p) ptrauth_sign_unauthenticated(p, ptrauth_key_function_pointer, 0)
+#define auth_ptr(p) ptrauth_auth_data(p, ptrauth_key_function_pointer, 0)
+#else
+#define sign_ptr(p) p
+#define auth_ptr(p) p
+#endif
 
 typedef struct ffi_trampoline_table ffi_trampoline_table;
 typedef struct ffi_trampoline_table_entry ffi_trampoline_table_entry;
@@ -160,7 +170,6 @@ struct ffi_trampoline_table
 {
   /* contiguous writable and executable pages */
   vm_address_t config_page;
-  vm_address_t trampoline_page;
 
   /* free list tracking */
   uint16_t free_count;
@@ -180,6 +189,22 @@ struct ffi_trampoline_table_entry
 /* Total number of trampolines that fit in one trampoline table */
 #define FFI_TRAMPOLINE_COUNT (PAGE_MAX_SIZE / FFI_TRAMPOLINE_SIZE)
 
+/* The trampoline dylib has one page for the MACHO_HEADER and one page for the trampolines.
+ * iOS 12.0 and later require that the entire dylib needs to be remapped as a unit.
+ *
+ * arm (legacy): Allocate two pages -- a config page and a placeholder for the trampolines
+ * arm64 (modern): Allocate three pages -- a config page and two placeholders for the trampoline dylib
+ *
+ * TODO: Update arm to be consistent with arm64.  Note that iOS12 does not support armv7.
+ */
+#ifdef FFI_TRAMPOLINE_WHOLE_DYLIB
+#define FFI_TRAMPOLINE_ALLOCATION_PAGE_COUNT 3
+#define FFI_TRAMPOLINE_PAGE_SEGMENT_OFFSET PAGE_MAX_SIZE
+#else
+#define FFI_TRAMPOLINE_ALLOCATION_PAGE_COUNT 2
+#define FFI_TRAMPOLINE_PAGE_SEGMENT_OFFSET 0
+#endif
+
 static pthread_mutex_t ffi_trampoline_lock = PTHREAD_MUTEX_INITIALIZER;
 static ffi_trampoline_table *ffi_trampoline_tables = NULL;
 
@@ -195,34 +220,57 @@ ffi_trampoline_table_alloc (void)
   kern_return_t kt;
   uint16_t i;
 
-  /* Allocate two pages -- a config page and a placeholder page */
   config_page = 0x0;
-  kt = vm_allocate (mach_task_self (), &config_page, PAGE_MAX_SIZE * 2,
+  /* The entire allocation is:
+   *    config_page
+   *    trampoline_segment
+   *
+   * trampoline_segment is:
+   *    trampoline dylib mach-o header (if FFI_TRAMPOLINE_WHOLE_DYLIB)
+   *    trampoline page
+   */
+  kt = vm_allocate (mach_task_self (), &config_page, FFI_TRAMPOLINE_ALLOCATION_PAGE_COUNT * PAGE_MAX_SIZE,
 		    VM_FLAGS_ANYWHERE);
   if (kt != KERN_SUCCESS)
     return NULL;
 
-  /* Remap the trampoline table on top of the placeholder page */
-  trampoline_page = config_page + PAGE_MAX_SIZE;
-  trampoline_page_template = (vm_address_t)&ffi_closure_trampoline_table_page;
+  static dispatch_once_t trampoline_template_init_once;
+  static void *ffi_closure_trampoline_table_page;
+
+  dispatch_once(&trampoline_template_init_once, ^{
+    void * const trampoline_handle = dlopen("/usr/lib/libffi-trampolines.dylib", RTLD_NOW | RTLD_LOCAL | RTLD_FIRST);
+    assert(trampoline_handle);
+
+    ffi_closure_trampoline_table_page = dlsym(trampoline_handle, "ffi_closure_trampoline_table_page");
+    assert(ffi_closure_trampoline_table_page);
+  });
+
+  trampoline_page_template = (uintptr_t) auth_ptr((void*)ffi_closure_trampoline_table_page);
 #ifdef __arm__
   /* ffi_closure_trampoline_table_page can be thumb-biased on some ARM archs */
   trampoline_page_template &= ~1UL;
 #endif
-  kt = vm_remap (mach_task_self (), &trampoline_page, PAGE_MAX_SIZE, 0x0,
-		 VM_FLAGS_OVERWRITE, mach_task_self (), trampoline_page_template,
+
+  vm_address_t trampoline_segment_template = trampoline_page_template - FFI_TRAMPOLINE_PAGE_SEGMENT_OFFSET;
+  vm_size_t trampoline_segment_size = (FFI_TRAMPOLINE_ALLOCATION_PAGE_COUNT - 1) * PAGE_MAX_SIZE;
+
+  /* Remap the trampoline table on top of the placeholder page */
+  vm_address_t trampoline_segment = config_page + PAGE_MAX_SIZE;
+  kt = vm_remap (mach_task_self(), &trampoline_segment, trampoline_segment_size, 0x0,
+		 VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), trampoline_segment_template,
 		 FALSE, &cur_prot, &max_prot, VM_INHERIT_SHARE);
-  if (kt != KERN_SUCCESS)
+  if (kt != KERN_SUCCESS || !(cur_prot & VM_PROT_EXECUTE))
     {
-      vm_deallocate (mach_task_self (), config_page, PAGE_MAX_SIZE * 2);
+      vm_deallocate (mach_task_self (), config_page, FFI_TRAMPOLINE_ALLOCATION_PAGE_COUNT * PAGE_MAX_SIZE);
       return NULL;
     }
+
+  trampoline_page = trampoline_segment + FFI_TRAMPOLINE_PAGE_SEGMENT_OFFSET;
 
   /* We have valid trampoline and config pages */
   table = calloc (1, sizeof (ffi_trampoline_table));
   table->free_count = FFI_TRAMPOLINE_COUNT;
   table->config_page = config_page;
-  table->trampoline_page = trampoline_page;
 
   /* Create and initialize the free list */
   table->free_list_pool =
@@ -232,7 +280,10 @@ ffi_trampoline_table_alloc (void)
     {
       ffi_trampoline_table_entry *entry = &table->free_list_pool[i];
       entry->trampoline =
-	(void *) (table->trampoline_page + (i * FFI_TRAMPOLINE_SIZE));
+	(void *) (trampoline_page + (i * FFI_TRAMPOLINE_SIZE));
+#if __has_feature(ptrauth_calls)
+      entry->trampoline = ptrauth_sign_unauthenticated(entry->trampoline, ptrauth_key_function_pointer, 0);
+#endif
 
       if (i < table->free_count - 1)
 	entry->next = &table->free_list_pool[i + 1];
