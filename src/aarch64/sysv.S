@@ -82,7 +82,15 @@ CNAME(ffi_call_SYSV):
 	SIGN_LR_WITH_REG(x1)
 
 	/* Use a stack frame allocated by our caller.  */
+#if __has_feature(ptrauth_calls) && defined(__APPLE__)
+	/* darwin's libunwind assumes that the cfa is the sp and that's the data
+	 * used to sign the lr.  In order to allow unwinding through this
+	 * function it is necessary to point the cfa at the signing register.
+	 */
+	cfi_def_cfa(x1, 0);
+#else
 	cfi_def_cfa(x1, 40);
+#endif
 	stp	x29, x30, [x1]
 	mov	x9, sp
 	str	x9, [x1, #32]
