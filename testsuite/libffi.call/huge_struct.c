@@ -9,6 +9,8 @@
 /* { dg-options -mlong-double-128 { target powerpc64*-*-linux* } } */
 /* { dg-options -Wformat=0 { target moxie*-*-elf } } */
 
+#include <inttypes.h>
+
 #include "ffitest.h"
 
 typedef	struct BigStruct{
