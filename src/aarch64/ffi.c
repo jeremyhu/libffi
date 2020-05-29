@@ -602,11 +602,12 @@ ffi_call_int (ffi_cif *cif, void (*fn)(void), void *orig_rvalue,
   else if (flags & AARCH64_RET_NEED_COPY)
     rsize = 16;
 
-  /* Allocate consectutive stack for everything we'll need.  */
-  context = alloca (sizeof(struct call_context) + stack_bytes + 32 + rsize);
+  /* Allocate consectutive stack for everything we'll need.
+     The frame uses 40 bytes for: lr, fp, rvalue, flags, sp */
+  context = alloca (sizeof(struct call_context) + stack_bytes + 40 + rsize);
   stack = context + 1;
   frame = (void*)((uintptr_t)stack + (uintptr_t)stack_bytes);
-  rvalue = (rsize ? (void*)((uintptr_t)frame + 32) : orig_rvalue);
+  rvalue = (rsize ? (void*)((uintptr_t)frame + 40) : orig_rvalue);
 
   arg_init (&state);
   for (i = 0, nargs = cif->nargs; i < nargs; i++)
@@ -768,6 +769,8 @@ ffi_call_go (ffi_cif *cif, void (*fn) (void), void *rvalue,
 }
 #endif /* FFI_GO_CLOSURES */
 
+#if FFI_CLOSURES
+
 /* Build a trampoline.  */
 
 extern void ffi_closure_SYSV (void) FFI_HIDDEN;
@@ -792,10 +795,14 @@ ffi_prep_closure_loc (ffi_closure *closure,
 
 #if FFI_EXEC_TRAMPOLINE_TABLE
 #ifdef __MACH__
-#ifdef HAVE_PTRAUTH
-  codeloc = ptrauth_strip (codeloc, ptrauth_key_asia);
+#if HAVE_PTRAUTH
+  codeloc = ptrauth_auth_data(codeloc, ptrauth_key_function_pointer, 0);
 #endif
+#ifdef FFI_TRAMPOLINE_WHOLE_DYLIB
+  void **config = (void **)((uint8_t *)codeloc - 2*PAGE_MAX_SIZE);
+#else
   void **config = (void **)((uint8_t *)codeloc - PAGE_MAX_SIZE);
+#endif
   config[0] = closure;
   config[1] = start;
 #endif
@@ -830,6 +837,22 @@ ffi_prep_closure_loc (ffi_closure *closure,
 
   return FFI_OK;
 }
+
+ffi_closure *
+ffi_find_closure_for_code(void *codeloc)
+{
+#if FFI_EXEC_TRAMPOLINE_TABLE
+#  ifdef FFI_TRAMPOLINE_WHOLE_DYLIB
+    void **config = (void **)((uint8_t *)codeloc - 2*PAGE_MAX_SIZE);
+#  else
+    void **config = (void **)((uint8_t *)codeloc - PAGE_MAX_SIZE);
+#  endif
+    return config[0];
+#else
+    return (ffi_closure*)codeloc;
+#endif
+}
+
 
 #ifdef FFI_GO_CLOSURES
 extern void ffi_go_closure_SYSV (void) FFI_HIDDEN;
@@ -1011,5 +1034,7 @@ ffi_closure_SYSV_inner (ffi_cif *cif,
 
   return flags;
 }
+
+#endif /* FFI_CLOSURES */
 
 #endif /* (__aarch64__) || defined(__arm64__)|| defined (_M_ARM64)*/

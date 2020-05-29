@@ -208,6 +208,7 @@ E(ARM_TYPE_STRUCT)
 	UNWIND(.fnend)
 ARM_FUNC_END(ffi_call_SYSV)
 
+#if FFI_CLOSURES
 
 /*
 	int ffi_closure_inner_* (cif, fun, user_data, frame)
@@ -353,6 +354,8 @@ E(ARM_TYPE_STRUCT)
 	ldm	sp, {sp,pc}
 	cfi_endproc
 ARM_FUNC_END(ffi_closure_ret)
+
+#endif /* FFI_CLOSURES */
 
 #if FFI_EXEC_TRAMPOLINE_TABLE
 

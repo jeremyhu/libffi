@@ -58,14 +58,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
 #define PTR_SIZE	8
 #endif
 
-#if FFI_EXEC_TRAMPOLINE_TABLE && defined(__MACH__) && defined(HAVE_PTRAUTH)
-# define BR(r)  braaz r
-# define BLR(r) blraaz r
-#else
-# define BR(r)  br r
-# define BLR(r) blr r
-#endif
-
 	.text
 	.align 4
 
@@ -86,9 +78,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
 
 	cfi_startproc
 CNAME(ffi_call_SYSV):
+	/* Sign the lr with x1 since that is where it will be stored */
+	SIGN_LR_WITH_REG(x1)
+
 	/* Use a stack frame allocated by our caller.  */
-	cfi_def_cfa(x1, 32);
+	cfi_def_cfa(x1, 40);
 	stp	x29, x30, [x1]
+	mov	x9, sp
+	str	x9, [x1, #32]
 	mov	x29, x1
 	mov	sp, x0
 	cfi_def_cfa_register(x29)
@@ -119,13 +116,15 @@ CNAME(ffi_call_SYSV):
 	/* Deallocate the context, leaving the stacked arguments.  */
 	add	sp, sp, #CALL_CONTEXT_SIZE
 
-	BLR(x9)				/* call fn */
+	BRANCH_AND_LINK_TO_REG     x9			/* call fn */
 
 	ldp	x3, x4, [x29, #16]	/* reload rvalue and flags */
 
 	/* Partially deconstruct the stack frame.  */
-	mov     sp, x29
+	ldr	x9, [x29, #32]
+	mov	sp, x9
 	cfi_def_cfa_register (sp)
+	mov	x2, x29			/* Preserve for auth */
 	ldp     x29, x30, [x29]
 
 	/* Save the return value as directed.  */
@@ -139,70 +138,75 @@ CNAME(ffi_call_SYSV):
 	   and therefore we want to extend to 64 bits; these types
 	   have two consecutive entries allocated for them.  */
 	.align	4
-0:	ret				/* VOID */
+0:	b 99f				/* VOID */
 	nop
 1:	str	x0, [x3]		/* INT64 */
-	ret
+	b 99f
 2:	stp	x0, x1, [x3]		/* INT128 */
-	ret
+	b 99f
 3:	brk	#1000			/* UNUSED */
-	ret
+	b 99f
 4:	brk	#1000			/* UNUSED */
-	ret
+	b 99f
 5:	brk	#1000			/* UNUSED */
-	ret
+	b 99f
 6:	brk	#1000			/* UNUSED */
-	ret
+	b 99f
 7:	brk	#1000			/* UNUSED */
-	ret
+	b 99f
 8:	st4	{ v0.s, v1.s, v2.s, v3.s }[0], [x3]	/* S4 */
-	ret
+	b 99f
 9:	st3	{ v0.s, v1.s, v2.s }[0], [x3]	/* S3 */
-	ret
+	b 99f
 10:	stp	s0, s1, [x3]		/* S2 */
-	ret
+	b 99f
 11:	str	s0, [x3]		/* S1 */
-	ret
+	b 99f
 12:	st4	{ v0.d, v1.d, v2.d, v3.d }[0], [x3]	/* D4 */
-	ret
+	b 99f
 13:	st3	{ v0.d, v1.d, v2.d }[0], [x3]	/* D3 */
-	ret
+	b 99f
 14:	stp	d0, d1, [x3]		/* D2 */
-	ret
+	b 99f
 15:	str	d0, [x3]		/* D1 */
-	ret
+	b 99f
 16:	str	q3, [x3, #48]		/* Q4 */
 	nop
 17:	str	q2, [x3, #32]		/* Q3 */
 	nop
 18:	stp	q0, q1, [x3]		/* Q2 */
-	ret
+	b 99f
 19:	str	q0, [x3]		/* Q1 */
-	ret
+	b 99f
 20:	uxtb	w0, w0			/* UINT8 */
 	str	x0, [x3]
-21:	ret				/* reserved */
+21:	b 99f				/* reserved */
 	nop
 22:	uxth	w0, w0			/* UINT16 */
 	str	x0, [x3]
-23:	ret				/* reserved */
+23:	b 99f				/* reserved */
 	nop
 24:	mov	w0, w0			/* UINT32 */
 	str	x0, [x3]
-25:	ret				/* reserved */
+25:	b 99f				/* reserved */
 	nop
 26:	sxtb	x0, w0			/* SINT8 */
 	str	x0, [x3]
-27:	ret				/* reserved */
+27:	b 99f				/* reserved */
 	nop
 28:	sxth	x0, w0			/* SINT16 */
 	str	x0, [x3]
-29:	ret				/* reserved */
+29:	b 99f				/* reserved */
 	nop
 30:	sxtw	x0, w0			/* SINT32 */
 	str	x0, [x3]
-31:	ret				/* reserved */
+31:	b 99f				/* reserved */
 	nop
+
+	/* Return now that result has been populated. */
+99:
+	AUTH_LR_WITH_REG(x2)
+	ret
 
 	cfi_endproc
 
@@ -212,6 +216,8 @@ CNAME(ffi_call_SYSV):
 	.type	CNAME(ffi_call_SYSV), #function
 	.size CNAME(ffi_call_SYSV), .-CNAME(ffi_call_SYSV)
 #endif
+
+#if FFI_CLOSURES
 
 /* ffi_closure_SYSV
 
@@ -232,6 +238,7 @@ CNAME(ffi_call_SYSV):
 	.align 4
 CNAME(ffi_closure_SYSV_V):
 	cfi_startproc
+	SIGN_LR
 	stp     x29, x30, [sp, #-ffi_closure_SYSV_FS]!
 	cfi_adjust_cfa_offset (ffi_closure_SYSV_FS)
 	cfi_rel_offset (x29, 0)
@@ -255,6 +262,7 @@ CNAME(ffi_closure_SYSV_V):
 	.align	4
 	cfi_startproc
 CNAME(ffi_closure_SYSV):
+	SIGN_LR
 	stp     x29, x30, [sp, #-ffi_closure_SYSV_FS]!
 	cfi_adjust_cfa_offset (ffi_closure_SYSV_FS)
 	cfi_rel_offset (x29, 0)
@@ -271,7 +279,9 @@ CNAME(ffi_closure_SYSV):
 	/* Load ffi_closure_inner arguments.  */
 	ldp	PTR_REG(0), PTR_REG(1), [x17, #FFI_TRAMPOLINE_CLOSURE_OFFSET]	/* load cif, fn */
 	ldr	PTR_REG(2), [x17, #FFI_TRAMPOLINE_CLOSURE_OFFSET+PTR_SIZE*2]	/* load user_data */
+#ifdef FFI_GO_CLOSURES
 .Ldo_closure:
+#endif
 	add	x3, sp, #16				/* load context */
 	add	x4, sp, #ffi_closure_SYSV_FS		/* load stack */
 	add	x5, sp, #16+CALL_CONTEXT_SIZE		/* load rvalue */
@@ -279,9 +289,6 @@ CNAME(ffi_closure_SYSV):
 	bl      CNAME(ffi_closure_SYSV_inner)
 
 	/* Load the return value as directed.  */
-#if FFI_EXEC_TRAMPOLINE_TABLE && defined(__MACH__) && defined(HAVE_PTRAUTH)
-	autiza	x1
-#endif
 	adr	x1, 0f
 	and	w0, w0, #AARCH64_RET_MASK
 	add	x1, x1, x0, lsl #3
@@ -357,7 +364,7 @@ CNAME(ffi_closure_SYSV):
 	cfi_adjust_cfa_offset (-ffi_closure_SYSV_FS)
 	cfi_restore (x29)
 	cfi_restore (x30)
-	ret
+	AUTH_LR_AND_RET
 	cfi_endproc
 
 	.globl	CNAME(ffi_closure_SYSV)
@@ -376,7 +383,7 @@ CNAME(ffi_closure_trampoline_table_page):
     .rept PAGE_MAX_SIZE / FFI_TRAMPOLINE_SIZE
     adr x16, -PAGE_MAX_SIZE
     ldp x17, x16, [x16]
-    BR(x16)
+    br x16
 	nop		/* each entry in the trampoline config page is 2*sizeof(void*) so the trampoline itself cannot be smaller than 16 bytes */
     .endr
 
@@ -443,6 +450,7 @@ CNAME(ffi_go_closure_SYSV):
 	.size	CNAME(ffi_go_closure_SYSV), . - CNAME(ffi_go_closure_SYSV)
 #endif
 #endif /* FFI_GO_CLOSURES */
+#endif /* FFI_CLOSURES */
 #endif /* __arm64__ */
 
 #if defined __ELF__ && defined __linux__
