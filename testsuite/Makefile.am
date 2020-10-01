@@ -62,10 +62,7 @@ libffi.complex/return_complex1.inc libffi.complex/complex.exp \
 libffi.complex/cls_complex_struct.inc \
 libffi.complex/return_complex_float.c libffi.go/closure1.c \
 libffi.go/aa-direct.c libffi.go/ffitest.h libffi.go/go.exp \
-libffi.go/static-chain.h libffi.bhaible/bhaible.exp \
-libffi.bhaible/test-call.c libffi.bhaible/alignof.h \
-libffi.bhaible/testcases.c libffi.bhaible/test-callback.c \
-libffi.bhaible/Makefile libffi.bhaible/README config/default.exp \
+libffi.go/static-chain.h config/default.exp \
 libffi.closures/cls_multi_sshort.c \
 libffi.closures/cls_align_longdouble_split2.c \
 libffi.closures/cls_1_1byte.c libffi.closures/cls_uint_va.c \

@@ -765,7 +765,7 @@ ffi_prep_closure_loc (ffi_closure* closure,
 }
 
 ffi_closure *
-ffi_find_closure_for_code(void *code)
+ffi_find_closure_for_code_np(void *code)
 {
     return (ffi_closure *) code;
 }

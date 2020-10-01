@@ -840,7 +840,7 @@ ffi_prep_closure_loc (ffi_closure *closure,
 }
 
 ffi_closure *
-ffi_find_closure_for_code(void *codeloc)
+ffi_find_closure_for_code_np(void *codeloc)
 {
 #if FFI_EXEC_TRAMPOLINE_TABLE
 #  ifdef FFI_TRAMPOLINE_WHOLE_DYLIB
