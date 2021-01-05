@@ -198,6 +198,13 @@ if test "x$libffi_cv_as_ptrauth" = xyes; then
 	      [Define if your compiler supports pointer authentication.])
 fi
 
+# Set additional defines for Apple Silicon.
+case "$target" in
+    aarch64-apple-darwin* | arm64-apple-darwin*)
+	AC_DEFINE([FFI_TRAMPOLINE_WHOLE_DYLIB], 1, [Creating a separate libffi-trampolines.dylib and remapping the entire dylib])
+	;;
+esac
+
 # On PaX enable kernels that have MPROTECT enable we can't use PROT_EXEC.
 AC_ARG_ENABLE(pax_emutramp,
   [  --enable-pax_emutramp       enable pax emulated trampolines, for we can't use PROT_EXEC],
